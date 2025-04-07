@@ -5,50 +5,56 @@ import { proposeEvent } from '../utils/useEventProposal';
 
 export async function handleAnalyzeCommand(interaction: ChatInputCommandInteraction) {
   try {
-    // すぐに初回応答を返す（ephemeral は flags で指定）
+    // Interactionにはまず即座にdeferReplyで返答（3秒以内必須）
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
-    
+
     const guild = interaction.guild;
     if (!guild) {
-      // ここで既に応答済みなら editReply を使う
-      await interaction.editReply('このコマンドはギルド内でのみ使用できます。');
+      await interaction.editReply('このコマンドはサーバー内でのみ使用できます。');
       return;
     }
-    
-    // ここからバックグラウンドの重い処理
-    const messagesToStore: { id: string; content: string; channel_id: string }[] = [];
-    const channels = await guild.channels.fetch();
-    
-    for (const [, channel] of channels) {
-      if (!channel || channel.type !== 0) continue; // TextChannelのみ
-      const textChannel = channel as TextChannel;
-      const messages = await textChannel.messages.fetch({ limit: 100 });
-      messages.forEach((msg) => {
-        messagesToStore.push({
-          id: msg.id,
-          content: msg.content,
-          channel_id: textChannel.id,
-        });
-      });
-    }
-    
-    await saveMessages(messagesToStore);
-    
-    const storedMessages = await getAllMessages();
-    const allMessageTexts = storedMessages.map((msg) => msg.content);
-    const extractedKeywords = await analyzeMessages(allMessageTexts);
-    const eventProposal = await proposeEvent(extractedKeywords);
-    
-    // 一度だけ最終応答を送る
-    await interaction.editReply(`イベント提案:\n${eventProposal}`);
+
+    // 重い処理をバックグラウンドで行う
+    process.nextTick(async () => {
+      try {
+        const messagesToStore: { id: string; content: string; channel_id: string }[] = [];
+        const channels = await guild.channels.fetch();
+
+        for (const [, channel] of channels) {
+          if (!channel || channel.type !== 0) continue; // TextChannelのみ
+          const textChannel = channel as TextChannel;
+
+          const messages = await textChannel.messages.fetch({ limit: 100 });
+          messages.forEach((msg) => {
+            messagesToStore.push({
+              id: msg.id,
+              content: msg.content,
+              channel_id: textChannel.id,
+            });
+          });
+        }
+
+        await saveMessages(messagesToStore);
+
+        const storedMessages = await getAllMessages();
+        const allMessageTexts = storedMessages.map((msg) => msg.content);
+        const extractedKeywords = await analyzeMessages(allMessageTexts);
+        const eventProposal = await proposeEvent(extractedKeywords);
+
+        await interaction.editReply(`イベント提案:\n${eventProposal}`);
+      } catch (innerError) {
+        console.error('バックグラウンド処理エラー:', innerError);
+        await interaction.editReply('処理中にエラーが発生しました。');
+      }
+    });
   } catch (error) {
-    console.error(error);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply('エラーが発生しました。');
+    console.error('初期処理エラー:', error);
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({ content: 'エラーが発生しました。', ephemeral: true });
     } else {
-      await interaction.reply('エラーが発生しました。');
+      await interaction.editReply('エラーが発生しました。');
     }
   }
 }
