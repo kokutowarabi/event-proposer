@@ -14,19 +14,43 @@ export async function proposeEvent(keywords: string[]): Promise<string> {
       {
         role: 'system',
         content:
-          'あなたはプロのコミュニティイベントプランナーです。以下のキーワードをもとに、参加者がすぐにイベントに参加したくなるような、具体的かつ詳細なイベント企画案を考案してください。必ず、以下の項目を含み、指定されたJSON形式でのみ出力してください。\n\n' +
-          '【JSON形式の出力フォーマット】\n' +
-          '{"theme": "イベントのテーマ", "purpose": "開催目的", "activities": "具体的なアクティビティ", "participation": "参加方法", "venue": "開催場所", "datetime": "開催日時の例", "details": "その他詳細"}\n\n' +
-          '余計な説明やコメントは一切出力せず、上記JSONオブジェクトのみ返してください。'
+          '「あなたはDiscordコミュニティのチャットログを分析し、盛り上がっている話題とコミュニケーションをさらに活性化させるアイデアを提案するAIです。以下の情報をもとに、指示内容を満たすレポートを作成してください。\n\n' +
+          '【コミュニティ概要】\n' +
+          '猫に興味がある人が集まるDiscordコミュニティ\n\n' +
+          '【あなたのタスク】\n' +
+          '要約と主要トピックの抽出\n\n' +
+          'チャットの流れを短くまとめてください。\n\n' +
+          '盛り上がっているテーマやキーワードを列挙し、特に注目すべきトピックを3〜5個選び理由を添えて解説してください。\n\n' +
+          '背景や理由の考察\n\n' +
+          'なぜそれらのトピックが盛り上がっているのか、参加者の意図やニーズを推測してください。\n\n' +
+          'どのような層（初心者／上級者、特定の興味分野など）が特に関心を示しているかを考察してください。\n\n' +
+          'コミュニティ活性化のための提案\n\n' +
+          '上記のトピックをさらに発展させるにはどんなイベント・企画・チャンネルが効果的か？\n\n' +
+          '参加者同士の交流を促進するために運営者ができる具体的な施策は？（例：定期テーマの設定、勉強会／共同制作／オフ会の開催など）\n\n' +
+          'リスクや留意点\n\n' +
+          'ネガティブな意見や対立、トラブルの兆候があるか？ある場合はその対処法を提案。\n\n' +
+          '一部のメンバーのみが盛り上がっていて、新規や初心者が入りづらい雰囲気になっていないか？\n\n' +
+          'モデレーションやルール整備の必要性は？\n\n' +
+          'まとめ／今後のアクションプラン\n\n' +
+          '運営者が優先的に取り組むべきこと\n\n' +
+          '期待できる成果やメリット\n\n' +
+          '【出力形式】\n' +
+          '要約\n\n' +
+          '主要トピックと盛り上がりの背景\n\n' +
+          '活性化のための具体的提案\n\n' +
+          'リスク・留意点\n\n' +
+          '結論・推奨アクションプラン\n\n' +
+          '回答は日本語で、箇条書きや段落を用いて分かりやすく整理してください。必要があれば、追加の見出しやリストを使用しても構いません。\n\n' +
+          '以上を踏まえ、レポートを作成してください。」'
       },
       {
         role: 'user',
-        content: `以下のキーワードが最近よく出現しています: ${promptKeywords}`
+        content: `以下のキーワードがチャットログ内で頻出しています: ${promptKeywords}`
       },
       {
         role: 'user',
         content:
-          '上記のキーワードをもとに、参加者が具体的にイベントに参加したくなるような、詳細な企画案を出力してください。'
+          '上記の情報をもとに、Discordコミュニティのチャットログに基づくレポートを作成してください。'
       }
     ],
     model: 'deepseek-chat',
@@ -34,23 +58,9 @@ export async function proposeEvent(keywords: string[]): Promise<string> {
 
   let responseContent = completion.choices[0].message.content || '';
   console.log('Raw response from DeepSeek:', responseContent);
-  // Markdownのコードブロックを除去し、余分な空白をトリム
+  // Markdownのコードブロック（json指定）を除去し、余分な空白をトリム
   responseContent = responseContent.replace(/^```json\s*|```$/g, '').trim();
   
-  try {
-    const parsed = JSON.parse(responseContent);
-    const { theme, purpose, activities, participation, venue, datetime, details } = parsed;
-    return (
-      `【テーマ】 ${theme}\n` +
-      `【目的】 ${purpose}\n` +
-      `【アクティビティ】 ${activities}\n` +
-      `【参加方法】 ${participation}\n` +
-      `【開催場所】 ${venue}\n` +
-      `【開催日時】 ${datetime}\n` +
-      `【その他詳細】 ${details}`
-    );
-  } catch (error) {
-    console.error('JSON parse error:', error);
-    return 'イベント提案が生成できませんでした。';
-  }
+  // 出力はJSONではなくレポート形式のテキストと想定するため、そのまま返却
+  return responseContent;
 }
