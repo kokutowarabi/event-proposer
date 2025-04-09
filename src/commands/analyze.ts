@@ -40,10 +40,17 @@ export async function handleAnalyzeCommand(interaction: ChatInputCommandInteract
 
         const storedMessages = await getAllMessages();
         const allMessageTexts = storedMessages.map((msg) => msg.content);
-        const extractedKeywords = await analyzeMessages(allMessageTexts);
-        const eventProposal = await proposeEvent(extractedKeywords);
+        // proposeEventがstring[]（分割済みのチャンク）を返す実装の場合
+        const eventProposalChunks = await proposeEvent(allMessageTexts);
 
-        await interaction.editReply(`イベント提案:\n${eventProposal}`);
+        // 最初のチャンクをeditReplyで返信し、残りのチャンクはfollowUpで送信
+        await interaction.editReply(`イベント提案:\n${eventProposalChunks[0]}`);
+        for (let i = 1; i < eventProposalChunks.length; i++) {
+          await interaction.followUp({
+            content: eventProposalChunks[i],
+            ephemeral: true,
+          });
+        }
       } catch (innerError) {
         console.error('バックグラウンド処理エラー:', innerError);
         await interaction.editReply('処理中にエラーが発生しました。');

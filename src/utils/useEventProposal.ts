@@ -7,7 +7,28 @@ const openai = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
 });
 
-export async function proposeEvent(keywords: string[]): Promise<string> {
+// 2000文字以内に分割するヘルパー関数
+function splitMessage(message: string, limit = 2000): string[] {
+  const chunks: string[] = [];
+  let currentChunk = '';
+  const lines = message.split('\n');
+
+  for (const line of lines) {
+    // 改行コード分(+1)を考慮して追加する
+    if (currentChunk.length + line.length + 1 > limit) {
+      chunks.push(currentChunk);
+      currentChunk = line + "\n";
+    } else {
+      currentChunk += line + "\n";
+    }
+  }
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+  return chunks;
+}
+
+export async function proposeEvent(keywords: string[]): Promise<string[]> {
   const promptKeywords = keywords.join('、');
   const completion = await openai.chat.completions.create({
     messages: [
@@ -58,9 +79,9 @@ export async function proposeEvent(keywords: string[]): Promise<string> {
 
   let responseContent = completion.choices[0].message.content || '';
   console.log('Raw response from DeepSeek:', responseContent);
-  // Markdownのコードブロック（json指定）を除去し、余分な空白をトリム
+  // Markdownのコードブロック（json指定）があれば除去し、余分な空白をトリム
   responseContent = responseContent.replace(/^```json\s*|```$/g, '').trim();
-  
-  // 出力はJSONではなくレポート形式のテキストと想定するため、そのまま返却
-  return responseContent;
+
+  // レポートが2000文字を超える場合は分割して返却
+  return splitMessage(responseContent);
 }
