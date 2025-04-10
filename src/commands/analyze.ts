@@ -1,11 +1,10 @@
 import { ChatInputCommandInteraction, TextChannel, MessageFlags } from 'discord.js';
 import { saveMessages, getAllMessages } from '../utils/supabaseClient';
-import { analyzeMessages } from '../utils/kuromoji';
 import { proposeEvent } from '../utils/useEventProposal';
 
 export async function handleAnalyzeCommand(interaction: ChatInputCommandInteraction) {
   try {
-    // Interactionにはまず即座にdeferReplyで返答（3秒以内必須）
+    // インタラクションを受け取ったら、即座に deferReply を呼び出す（3秒以内必須）
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
@@ -16,52 +15,53 @@ export async function handleAnalyzeCommand(interaction: ChatInputCommandInteract
       return;
     }
 
-    // 重い処理をバックグラウンドで行う
-    process.nextTick(async () => {
+    // 全テキストチャンネルからメッセージを取得する
+    const messagesToStore: { id: string; content: string; channel_id: string }[] = [];
+    const channels = await guild.channels.fetch();
+
+    // channels は Collection<string, GuildChannel> なので、values() を利用
+    for (const channel of channels.values()) {
+      // テキストチャンネルのみ対象とする（channel.isTextBased() はスレッドなどもtrueになるので、ここでは TextChannel のインスタンスに絞る）
+      if (!(channel instanceof TextChannel)) continue;
+      const textChannel = channel as TextChannel;
+
       try {
-        const messagesToStore: { id: string; content: string; channel_id: string }[] = [];
-        const channels = await guild.channels.fetch();
-
-        for (const [, channel] of channels) {
-          if (!channel || channel.type !== 0) continue; // TextChannelのみ
-          const textChannel = channel as TextChannel;
-
-          const messages = await textChannel.messages.fetch({ limit: 100 });
-          messages.forEach((msg) => {
-            messagesToStore.push({
-              id: msg.id,
-              content: msg.content,
-              channel_id: textChannel.id,
-            });
+        // 各チャンネルから最新100件のメッセージを取得
+        const messages = await textChannel.messages.fetch({ limit: 100 });
+        messages.forEach((msg) => {
+          messagesToStore.push({
+            id: msg.id,
+            content: msg.content,
+            channel_id: textChannel.id,
           });
-        }
-
-        await saveMessages(messagesToStore);
-
-        const storedMessages = await getAllMessages();
-        const allMessageTexts = storedMessages.map((msg) => msg.content);
-        // proposeEventがstring[]（分割済みのチャンク）を返す実装の場合
-        const eventProposalChunks = await proposeEvent(allMessageTexts);
-
-        // 最初のチャンクをeditReplyで返信し、残りのチャンクはfollowUpで送信
-        await interaction.editReply(`イベント提案:\n${eventProposalChunks[0]}`);
-        for (let i = 1; i < eventProposalChunks.length; i++) {
-          await interaction.followUp({
-            content: eventProposalChunks[i],
-            ephemeral: true,
-          });
-        }
-      } catch (innerError) {
-        console.error('バックグラウンド処理エラー:', innerError);
-        await interaction.editReply('処理中にエラーが発生しました。');
+        });
+      } catch (fetchError) {
+        console.error(`チャンネル[${textChannel.name}]のメッセージ取得に失敗しました。`, fetchError);
       }
-    });
+    }
+
+    await saveMessages(messagesToStore);
+
+    const storedMessages = await getAllMessages();
+    const allMessageTexts = storedMessages.map((msg) => msg.content);
+    // proposeEvent はメッセージの配列（長い場合は分割済みのチャンク）を返す実装とする
+    const eventProposalChunks = await proposeEvent(allMessageTexts);
+
+    // 最初のチャンクを editReply で送信し、残りは followUp で送信
+    await interaction.editReply(`イベント提案:\n${eventProposalChunks[0]}`);
+    for (let i = 1; i < eventProposalChunks.length; i++) {
+      await interaction.followUp({
+        content: eventProposalChunks[i],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   } catch (error) {
     console.error('初期処理エラー:', error);
-    if (!interaction.deferred && !interaction.replied) {
-      await interaction.reply({ content: 'エラーが発生しました。', ephemeral: true });
-    } else {
-      await interaction.editReply('エラーが発生しました。');
+    // 既に deferReply 済みの場合は editReply を利用
+    try {
+      await interaction.editReply('処理中にエラーが発生しました。');
+    } catch (editError) {
+      console.error('editReply エラー:', editError);
     }
   }
 }
