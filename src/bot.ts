@@ -29,7 +29,7 @@ export function startBot() {
   });
 
   client.on('messageCreate', async (message: Message) => {
-    // Botのメッセージは無視
+    // Bot自身のメッセージは無視
     if (message.author.bot) return;
 
     // Botへのメンションが含まれていなければ無視
@@ -38,18 +38,23 @@ export function startBot() {
     // Botメンション部分を除去
     const contentWithoutMention = message.content.replace(`<@${client.user?.id}>`, '').trim();
 
+    // サーバー (Guild) がない場合は無視 (DMなど)
+    if (!message.guild) return;
+
+    // --- ここは例として、従来の「analyze」「output」「time last X days/weeks」などを
+    //     パースする簡易実装で残しています。 ---
+
     let analyzeChannelNames: string[] = [];
     let customInstruction: string = "";
     let outputChannel: TextChannel;
 
     // outputキーワードがあるかどうかで分岐
     if (contentWithoutMention.includes('output')) {
-      // 出力先指定あり：output キーワード前後で文字列を分割
       const parts = contentWithoutMention.split('output');
       const beforeOutput = parts[0].trim();
-      const afterOutput = parts.slice(1).join('output').trim(); // 万が一outputが複数あっても連結
+      const afterOutput = parts.slice(1).join('output').trim();
 
-      // 【出力先チャンネルの取得】
+      // 出力先チャンネル
       const outputMatch = afterOutput.match(/<#(\d+)>/);
       if (outputMatch) {
         const outputChannelId = outputMatch[1];
@@ -59,16 +64,14 @@ export function startBot() {
           return;
         }
         outputChannel = guildChannel as TextChannel;
-        // afterOutputから出力先メンション部分を除去して残りをカスタム指示とする
+        // 残りをカスタム指示に
         customInstruction = afterOutput.replace(/<#\d+>/, '').trim();
       } else {
-        // 出力先指定が誤っている場合はエラー
         await message.reply('出力チャンネルが指定されていません（例: output <#general>）。');
         return;
       }
 
-      // 【解析対象チャンネルの取得】
-      // analyzeがあれば、解析対象チャンネルのメンションを抽出
+      // analyze があれば解析対象チャンネルを抽出
       if (beforeOutput.toLowerCase().startsWith('analyze')) {
         const channelMentions = Array.from(beforeOutput.matchAll(/<#(\d+)>/g)).map(m => m[1]);
         if (channelMentions.length > 0) {
@@ -80,18 +83,19 @@ export function startBot() {
             return;
           }
           analyzeChannelNames = analyzeChannels.map(ch => ch.name);
-          // カスタム指示は、analyze部分のメンションを除去した残りの文字列も考慮
-          customInstruction = customInstruction || beforeOutput.replace(/<#\d+>/g, '').replace(/^analyze\s*/i, '').trim();
+          customInstruction = customInstruction ||
+            beforeOutput.replace(/<#\d+>/g, '').replace(/^analyze\s*/i, '').trim();
         } else {
-          // analyzeキーワードはあるが、メンションがない場合→解析対象は全テキストチャンネル
+          // analyze キーワードあるがメンション無なら全チャンネル対象
           const fetchedChannels = await message.guild?.channels.fetch();
           analyzeChannelNames = Array.from(fetchedChannels?.values() || [])
             .filter((ch): ch is TextChannel => !!ch && ch.type === ChannelType.GuildText)
             .map(ch => (ch as TextChannel).name);
-          customInstruction = customInstruction || beforeOutput.replace(/^analyze\s*/i, '').trim();
+          customInstruction = customInstruction ||
+            beforeOutput.replace(/^analyze\s*/i, '').trim();
         }
       } else {
-        // 出力先指定はあるが、analyzeキーワードがない場合は全テキストチャンネルを対象
+        // outputあるがanalyzeない → 全チャンネル対象
         const fetchedChannels = await message.guild?.channels.fetch();
         analyzeChannelNames = Array.from(fetchedChannels?.values() || [])
           .filter((ch): ch is TextChannel => !!ch && ch.type === ChannelType.GuildText)
@@ -99,14 +103,14 @@ export function startBot() {
         customInstruction = customInstruction || beforeOutput;
       }
     } else {
-      // output キーワードがない場合 → 出力先は【コマンド送信チャンネル】
+      // outputがない → 出力先はコマンド送信チャンネル
       if (message.channel.type !== ChannelType.GuildText) {
         await message.reply('コマンド送信チャンネルがテキストチャンネルではありません。');
         return;
       }
       outputChannel = message.channel as TextChannel;
 
-      // 解析対象チャンネルは、analyze があればそのメンション、なければコマンド送信チャンネルを対象
+      // analyze があれば対象を抽出
       if (contentWithoutMention.toLowerCase().startsWith('analyze')) {
         const channelMentions = Array.from(contentWithoutMention.matchAll(/<#(\d+)>/g)).map(m => m[1]);
         if (channelMentions.length > 0) {
@@ -118,14 +122,19 @@ export function startBot() {
             return;
           }
           analyzeChannelNames = analyzeChannels.map(ch => ch.name);
-          customInstruction = contentWithoutMention.replace(/<#\d+>/g, '').replace(/^analyze\s*/i, '').trim();
+          customInstruction = contentWithoutMention
+            .replace(/<#\d+>/g, '')
+            .replace(/^analyze\s*/i, '')
+            .trim();
         } else {
-          // analyze キーワードはあるがチャンネルメンションがなければ、対象はコマンド送信先
-          analyzeChannelNames = [(message.channel as TextChannel).name];
-          customInstruction = contentWithoutMention.replace(/^analyze\s*/i, '').trim();
+          // analyzeあるがメンション無 → コマンド送信チャンネルだけ
+          analyzeChannelNames = [outputChannel.name];
+          customInstruction = contentWithoutMention
+            .replace(/^analyze\s*/i, '')
+            .trim();
         }
       } else {
-        // analyzeもoutputも指定がなければ、解析対象は全テキストチャンネル
+        // analyze も output も無い → 全チャンネル対象
         const fetchedChannels = await message.guild?.channels.fetch();
         analyzeChannelNames = Array.from(fetchedChannels?.values() || [])
           .filter((ch): ch is TextChannel => !!ch && ch.type === ChannelType.GuildText)
@@ -134,13 +143,11 @@ export function startBot() {
       }
     }
 
-    // （デバッグ用）ログ出力
     console.log('解析対象チャンネル:', analyzeChannelNames);
     console.log('出力先チャンネル:', outputChannel.name);
     console.log('カスタム命令:', customInstruction);
 
-    // 解析処理を呼び出す（handleAnalyzeCommandFromMessage は引数として
-    // 分析対象チャンネル名の配列、出力先チャンネル名、カスタム指示を受け取る）
+    // 実際の解析処理へ
     await handleAnalyzeCommandFromMessage(
       message,
       analyzeChannelNames,

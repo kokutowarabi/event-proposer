@@ -11,15 +11,14 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// メッセージの型
 export interface Message {
   id: string;
   content: string;
   channel_id: string;
-  created_at?: string;
+  created_at?: string; // DBにINSERTされた時刻
+  sent_at: string;     // Discordメッセージ投稿時刻
 }
 
-// メッセージをアップサート（新規追加または更新）する関数
 export async function saveMessages(messages: Message[]): Promise<void> {
   const { error } = await supabase
     .from('messages')
@@ -29,7 +28,6 @@ export async function saveMessages(messages: Message[]): Promise<void> {
   }
 }
 
-// DBに保存されている全メッセージを取得する関数
 export async function getAllMessages(): Promise<Message[]> {
   const { data, error } = await supabase
     .from('messages')
@@ -38,4 +36,22 @@ export async function getAllMessages(): Promise<Message[]> {
     throw error;
   }
   return data || [];
+}
+
+/**
+ * 指定チャンネルで「最も新しい sent_at のメッセージID」を返す。
+ * 1つも無ければ null
+ */
+export async function getLatestMessageIdByChannel(channelId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('channel_id', channelId)
+    .order('sent_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (error || !data) {
+    return null;
+  }
+  return data.id as string;
 }
